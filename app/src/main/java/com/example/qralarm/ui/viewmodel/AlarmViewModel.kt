@@ -120,12 +120,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             if (currentEditingAlarmId == null) {
-                dao.insertAlarm(alarmToSave)
+                // 🚨 FIX: Capture the newly generated ID from Room
+                val newId = dao.insertAlarm(alarmToSave).toInt()
+                // Schedule with the CORRECT ID so multiple alarms don't overwrite each other in AlarmManager
+                scheduler.schedule(alarmToSave.copy(id = newId))
             } else {
                 dao.updateAlarm(alarmToSave)
+                scheduler.schedule(alarmToSave)
             }
 
-            scheduler.schedule(alarmToSave)
             isEditing = false
         }
     }
