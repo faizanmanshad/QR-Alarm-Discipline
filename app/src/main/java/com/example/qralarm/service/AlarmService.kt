@@ -11,6 +11,11 @@ import android.provider.Settings
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.example.qralarm.AlarmActivity
+import com.example.qralarm.data.AlarmDatabase
+import com.example.qralarm.util.AndroidAlarmScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class AlarmService : Service() {
     private var mediaPlayer: MediaPlayer? = null
@@ -22,10 +27,25 @@ class AlarmService : Service() {
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val alarmId = intent?.getIntExtra("ALARM_ID", -1) ?: -1
         val uriString = intent?.getStringExtra("RINGTONE_URI")
         val shouldVibrate = intent?.getBooleanExtra("VIBRATION_ENABLED", false) ?: false
 
-        // 🚨 LOAD GLOBAL SETTINGS FROM SHARED PREFERENCES
+        // 🚨 FIX: AUTO-RESCHEDULE LOGIC
+        // We look up the alarm in the DB and schedule its NEXT occurrence immediately.
+        if (alarmId != -1) {
+            val context = applicationContext
+            CoroutineScope(Dispatchers.IO).launch {
+                val db = AlarmDatabase.getDatabase(context)
+                val alarm = db.alarmDao().getAlarmById(alarmId)
+                alarm?.let {
+                    // This uses the new logic we put in the Scheduler to find the next day
+                    AndroidAlarmScheduler(context).schedule(it)
+                }
+            }
+        }
+
+        // 🚨 LOAD GLOBAL SETTINGS
         val prefs = getSharedPreferences("QR_ALARM_PREFS", Context.MODE_PRIVATE)
         val fadeSeconds = prefs.getInt("FADE_DURATION", 30)
         val ringingMinutes = prefs.getInt("RINGING_DURATION", 5)
@@ -37,7 +57,7 @@ class AlarmService : Service() {
             Settings.System.DEFAULT_ALARM_ALERT_URI
         }
 
-        // 2. Play Sound with Initial Volume at 0
+        // 2. Play Sound
         mediaPlayer = MediaPlayer().apply {
             setDataSource(applicationContext, ringtoneUri)
             setAudioAttributes(AudioAttributes.Builder()
@@ -45,12 +65,12 @@ class AlarmService : Service() {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build())
             isLooping = true
-            setVolume(0f, 0f) // Start silent for gradual increase
+            setVolume(0f, 0f)
             prepare()
             start()
         }
 
-        // 🚨 GRADUAL VOLUME INCREASE LOGIC
+        // 🚨 GRADUAL VOLUME INCREASE
         val totalFadeSteps = fadeSeconds.toLong()
         if (totalFadeSteps > 0) {
             volumeTimer = object : CountDownTimer(totalFadeSteps * 1000, 1000) {
@@ -68,16 +88,12 @@ class AlarmService : Service() {
             mediaPlayer?.setVolume(1f, 1f)
         }
 
-        // 🚨 MODIFIED: AUTOMATIC STOP LOGIC WITH BROADCAST
+        // 🚨 AUTOMATIC STOP
         ringingTimer = object : CountDownTimer(ringingMinutes * 60 * 1000L, 1000) {
             override fun onTick(millisUntilFinished: Long) {}
-            // Inside AlarmService.kt -> ringingTimer
             override fun onFinish() {
-                // 🚨 1. Signal the Broadcast (Keep this as backup)
                 val finishIntent = Intent("FINISH_ALARM_ACTIVITY")
                 sendBroadcast(finishIntent)
-
-                // 🚨 2. We stop the service
                 stopSelf()
             }
         }.start()
@@ -91,15 +107,14 @@ class AlarmService : Service() {
                 @Suppress("DEPRECATION")
                 getSystemService(VIBRATOR_SERVICE) as Vibrator
             }
-
             val pattern = longArrayOf(0, 500, 500)
             vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
         }
 
-        // 4. Create Notification and Start Foreground
+        // 4. Notification
         startForeground(1, createNotification())
 
-        // 5. CRITICAL: Auto-launch the QR Scanner Activity
+        // 5. Launch Activity
         val fullScreenIntent = Intent(this, AlarmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
@@ -129,13 +144,10 @@ class AlarmService : Service() {
         mediaPlayer?.stop()
         mediaPlayer?.release()
         mediaPlayer = null
-
         vibrator?.cancel()
         vibrator = null
-
         volumeTimer?.cancel()
         ringingTimer?.cancel()
-
         super.onDestroy()
     }
 
