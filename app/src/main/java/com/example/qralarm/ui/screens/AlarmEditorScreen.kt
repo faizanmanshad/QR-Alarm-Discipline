@@ -2,14 +2,17 @@ package com.example.qralarm.ui.screens
 
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.view.HapticFeedbackConstants
+import android.view.SoundEffectConstants // 🚨 NEW: Added for the audio tick sound
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -26,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,14 +53,13 @@ fun AlarmEditorScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
                         android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
                     viewModel.editRingtoneUri = it
-                    
-                    // Get the actual file name of the selected ringtone
+
                     val cursor = context.contentResolver.query(it, null, null, null, null)
                     val name = cursor?.use { c ->
                         val nameIndex = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                         if (c.moveToFirst() && nameIndex != -1) c.getString(nameIndex) else null
                     } ?: "Custom Tone"
-                    
+
                     viewModel.editRingtoneTitle = name
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -119,14 +122,11 @@ fun AlarmEditorScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
                     .height(260.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Highlight bar removed as per request
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Hours — items pre-built once, never rebuilt during scroll
                     val hours = remember { (1..12).map { it.toString() } }
                     VerticalInfinitePicker(
                         items = hours,
@@ -143,7 +143,6 @@ fun AlarmEditorScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
                         modifier = Modifier.padding(horizontal = 4.dp)
                     )
 
-                    // Minutes — items pre-built once, never rebuilt during scroll
                     val minutes = remember { (0..59).map { it.toString().padStart(2, '0') } }
                     VerticalInfinitePicker(
                         items = minutes,
@@ -154,7 +153,6 @@ fun AlarmEditorScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
 
                     Spacer(modifier = Modifier.width(12.dp))
 
-                    // AM / PM — items pre-built once, never rebuilt during scroll
                     val amPmOptions = remember { listOf("am", "pm") }
                     VerticalInfinitePicker(
                         items = amPmOptions,
@@ -227,18 +225,6 @@ fun AlarmEditorScreen(viewModel: AlarmViewModel, onDismiss: () -> Unit) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// THE ONLY FUNCTION THAT CHANGED
-// Key fixes:
-//   1. items list is passed in already remembered — zero allocation during scroll
-//   2. startIndex arithmetic guarantees the initial item lands in center slot
-//   3. rawOffset uses currentPage + currentPageOffsetFraction so the highlight
-//      tracks the CENTER position continuously, not the top-visible position
-//   4. derivedStateOf gates onValueChange so it only fires on settled pages,
-//      not on every animation frame — eliminates the callback lag
-//   5. beyondViewportPageCount = 2 keeps neighbors pre-rendered so edges
-//      never flash blank during fast flings
-// ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun VerticalInfinitePicker(
@@ -247,51 +233,53 @@ fun VerticalInfinitePicker(
     initialValueIndex: Int = 0,
     onValueChange: (String) -> Unit
 ) {
-    // Anchor the start page so the requested item appears in the center slot.
-    // We pick the midpoint of Int.MAX_VALUE then align it to a clean multiple
-    // of items.size so modulo arithmetic never produces a wrong remainder.
+    // 🚨 FIX: We shift the starting index so the target item lands in the CENTER slot (currentPage + 1)
     val startIndex = remember(items.size, initialValueIndex) {
         val mid = Int.MAX_VALUE / 2
-        mid - (mid % items.size) + initialValueIndex
+        val alignedMid = mid - (mid % items.size)
+        alignedMid + initialValueIndex - 1
     }
 
     val pagerState = rememberPagerState(initialPage = startIndex) { Int.MAX_VALUE }
+    val view = LocalView.current
 
-    // Gate: only call onValueChange when the page has fully settled.
-    // Without derivedStateOf this fires hundreds of times per scroll gesture.
+    // 🚨 FIX: The real selected page is always the one in the middle (currentPage + 1)
     val settledPage by remember {
-        derivedStateOf { pagerState.currentPage }
+        derivedStateOf { pagerState.currentPage + 1 }
     }
+
+    // 🚨 FIX: Added Audible Sound + Vibration
+    LaunchedEffect(pagerState.currentPage) {
+        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) // Stronger tap
+        view.playSoundEffect(SoundEffectConstants.CLICK) // 🔊 Plays the audible system tick sound
+    }
+
     LaunchedEffect(settledPage) {
         onValueChange(items[settledPage % items.size])
     }
 
+    val flingBehavior = PagerDefaults.flingBehavior(
+        state = pagerState,
+        pagerSnapDistance = PagerSnapDistance.atMost(100)
+    )
+
     VerticalPager(
         state = pagerState,
         modifier = modifier.height(216.dp),
-        // 72 dp padding top + 72 dp padding bottom means only ONE page fits
-        // in the padding zone on each side, keeping prev/center/next visible.
-        contentPadding = PaddingValues(vertical = 72.dp),
+        // 🚨 FIX: Removed contentPadding to enforce strict 3-row layout mathematics
         pageSize = PageSize.Fixed(72.dp),
-        snapPosition = SnapPosition.Center,
-        // Pre-render 2 pages beyond the viewport so neighbours are never blank.
-        beyondViewportPageCount = 2
+        beyondViewportPageCount = 2,
+        flingBehavior = flingBehavior
     ) { page ->
 
-        // rawOffset is a signed float:
-        //   0.0  → this page is EXACTLY in the center slot
-        //   1.0  → one full page above or below center
-        // currentPageOffsetFraction makes it continuous during the swipe
-        // animation so the visual effect is perfectly smooth.
-        val rawOffset =
-            (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+        // 🚨 FIX: Mathematics completely rewritten to force the center item to be the Bold/Main one.
+        val activePage = pagerState.currentPage + 1
+        val rawOffset = (activePage - page) + pagerState.currentPageOffsetFraction
         val fraction = rawOffset.absoluteValue.coerceIn(0f, 1f)
 
-        // lerp gives a linear gradient between selected and unselected states.
-        // Selected  (fraction = 0): scale 1.25, alpha 1.00, ExtraBold
-        // Unselected (fraction = 1): scale 0.78, alpha 0.28, Normal
-        val scale = lerp(1.25f, 0.78f, fraction)
-        val alpha = lerp(1.00f, 0.28f, fraction)
+        // Center item gets 1.3x scale and 100% brightness. Top/Bottom get smaller and 25% brightness.
+        val scale = lerp(1.3f, 0.75f, fraction)
+        val alpha = lerp(1.00f, 0.25f, fraction)
         val fontWeight = if (fraction < 0.5f) FontWeight.ExtraBold else FontWeight.Normal
 
         Box(
@@ -301,7 +289,7 @@ fun VerticalInfinitePicker(
             Text(
                 text = items[page % items.size],
                 style = MaterialTheme.typography.displayMedium.copy(
-                    fontSize = 36.sp,
+                    fontSize = 32.sp,
                     fontWeight = fontWeight,
                     color = Color.White
                 ),
@@ -314,8 +302,6 @@ fun VerticalInfinitePicker(
         }
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun EditorOptionRow(title: String, value: String, onClick: () -> Unit) {

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -29,7 +30,7 @@ class AlarmActivity : ComponentActivity() {
         val filter = IntentFilter("FINISH_ALARM_ACTIVITY").apply {
             priority = 999
         }
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(stopReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -52,6 +53,23 @@ class AlarmActivity : ComponentActivity() {
                 })
             }
         }
+    }
+
+    // 🚨 FIX: Replaced dispatchKeyEvent with standard onKeyDown to avoid the AndroidX library error
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // If the user presses Volume Up or Volume Down, consume the action (do nothing)
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    // 🚨 FIX: Also block onKeyUp to ensure it doesn't trigger when the user lets go of the button
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onDestroy() {

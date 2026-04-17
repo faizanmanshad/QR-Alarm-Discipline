@@ -46,13 +46,18 @@ class QRScannerProcessor {
             try {
                 // Unbind all before rebinding
                 cameraProvider.unbindAll()
-                // Bind to lifecycle (Automatically turns camera off when app closes)
-                cameraProvider.bindToLifecycle(
+
+                // Bind to lifecycle and capture the camera object
+                val camera = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
                     imageAnalysis
                 )
+
+                // 🚨 NEW: Force the flashlight (torch) to turn on immediately
+                camera.cameraControl.enableTorch(true)
+
             } catch (exc: Exception) {
                 exc.printStackTrace()
             }

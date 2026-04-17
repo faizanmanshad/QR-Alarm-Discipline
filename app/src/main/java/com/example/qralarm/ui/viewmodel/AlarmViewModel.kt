@@ -44,13 +44,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
 
     // 3. Ringtone & Vibration
     var editRingtoneUri by mutableStateOf<Uri?>(null)
-    // 🚨 UPDATED: This now holds the real name from the DB
     var editRingtoneTitle by mutableStateOf("Default System Alarm")
     var editVibrationEnabled by mutableStateOf(true)
 
     // Global Settings
     var fadeDurationSeconds by mutableIntStateOf(prefs.getInt("FADE_DURATION", 30))
     var ringingDurationMinutes by mutableIntStateOf(prefs.getInt("RINGING_DURATION", 5))
+
+    // 🚨 NEW: Alarm Volume Percentage (Defaults to 100%)
+    var alarmVolumePercentage by mutableIntStateOf(prefs.getInt("ALARM_VOLUME", 100))
 
     fun updateFadeDuration(seconds: Int) {
         fadeDurationSeconds = seconds
@@ -60,6 +62,12 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     fun updateRingingDuration(minutes: Int) {
         ringingDurationMinutes = minutes
         prefs.edit().putInt("RINGING_DURATION", minutes).apply()
+    }
+
+    // 🚨 NEW: Function to save volume preference
+    fun updateAlarmVolume(percentage: Int) {
+        alarmVolumePercentage = percentage
+        prefs.edit().putInt("ALARM_VOLUME", percentage).apply()
     }
 
     // --- VIEWMODEL FUNCTIONS ---
@@ -72,7 +80,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         editRepeatPreset = RepeatPreset.NONE
         editCustomDays.keys.forEach { editCustomDays[it] = false }
         editRingtoneUri = null
-        editRingtoneTitle = "Default System Alarm" // Reset to default
+        editRingtoneTitle = "Default System Alarm"
         editVibrationEnabled = true
         isEditing = true
     }
@@ -92,7 +100,6 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         parseSavedRepeatString(alarm.repeatDays)
 
         editRingtoneUri = alarm.ringtoneUri?.toUri()
-        // 🚨 NEW: Load the actual name saved in the database
         editRingtoneTitle = alarm.ringtoneName ?: "Default System Alarm"
 
         editVibrationEnabled = alarm.isVibrationEnabled
@@ -115,14 +122,11 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
                 repeatDays = daysString,
                 ringtoneUri = editRingtoneUri?.toString(),
                 isVibrationEnabled = editVibrationEnabled,
-                // 🚨 NEW: Save the title currently shown in the UI
                 ringtoneName = editRingtoneTitle
             )
 
             if (currentEditingAlarmId == null) {
-                // 🚨 FIX: Capture the newly generated ID from Room
                 val newId = dao.insertAlarm(alarmToSave).toInt()
-                // Schedule with the CORRECT ID so multiple alarms don't overwrite each other in AlarmManager
                 scheduler.schedule(alarmToSave.copy(id = newId))
             } else {
                 dao.updateAlarm(alarmToSave)

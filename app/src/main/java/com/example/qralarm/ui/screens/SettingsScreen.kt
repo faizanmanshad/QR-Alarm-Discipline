@@ -16,6 +16,31 @@ fun SettingsScreen(viewModel: AlarmViewModel, onPickRingtone: () -> Unit) {
         Text("App Settings", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(32.dp))
 
+        // --- 🚨 NEW: FORCED ALARM VOLUME SETTING ---
+        Text(
+            text = "Forced Alarm Volume",
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            text = "${viewModel.alarmVolumePercentage}%",
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold
+        )
+        Slider(
+            value = viewModel.alarmVolumePercentage.toFloat(),
+            onValueChange = { viewModel.updateAlarmVolume(it.toInt()) },
+            valueRange = 10f..100f, // From 10% to 100%
+            steps = 8 // Increments of 10%
+        )
+        Text(
+            text = "Forces the phone's alarm volume to this level when ringing.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
         // --- 1. GRADUAL VOLUME INCREASE SETTING ---
         Text(
             text = "Gradual Volume Increase",
@@ -30,8 +55,8 @@ fun SettingsScreen(viewModel: AlarmViewModel, onPickRingtone: () -> Unit) {
         Slider(
             value = viewModel.fadeDurationSeconds.toFloat(),
             onValueChange = { viewModel.updateFadeDuration(it.toInt()) },
-            valueRange = 5f..120f, // From 5 seconds to 2 minutes
-            steps = 22 // Increments of 5s
+            valueRange = 5f..120f,
+            steps = 22
         )
         Text(
             text = "Time taken for the alarm to reach full volume.",
@@ -55,15 +80,13 @@ fun SettingsScreen(viewModel: AlarmViewModel, onPickRingtone: () -> Unit) {
         Slider(
             value = viewModel.ringingDurationMinutes.toFloat(),
             onValueChange = { viewModel.updateRingingDuration(it.toInt()) },
-            valueRange = 1f..30f, // From 1 minute to 30 minutes
-            steps = 29 // Increments of 1 min
+            valueRange = 1f..30f,
+            steps = 29
         )
         Text(
             text = "The alarm will stop automatically after this period if not scanned.",
             style = MaterialTheme.typography.bodySmall,
             color = Color.Gray
         )
-
-        // Note: Ringtone list item removed as it is now configured per alarm.
     }
 }

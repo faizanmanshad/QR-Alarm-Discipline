@@ -4,6 +4,7 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.*
@@ -31,24 +32,29 @@ class AlarmService : Service() {
         val uriString = intent?.getStringExtra("RINGTONE_URI")
         val shouldVibrate = intent?.getBooleanExtra("VIBRATION_ENABLED", false) ?: false
 
-        // 🚨 FIX: AUTO-RESCHEDULE LOGIC
-        // We look up the alarm in the DB and schedule its NEXT occurrence immediately.
         if (alarmId != -1) {
             val context = applicationContext
             CoroutineScope(Dispatchers.IO).launch {
                 val db = AlarmDatabase.getDatabase(context)
                 val alarm = db.alarmDao().getAlarmById(alarmId)
                 alarm?.let {
-                    // This uses the new logic we put in the Scheduler to find the next day
                     AndroidAlarmScheduler(context).schedule(it)
                 }
             }
         }
 
-        // 🚨 LOAD GLOBAL SETTINGS
         val prefs = getSharedPreferences("QR_ALARM_PREFS", Context.MODE_PRIVATE)
         val fadeSeconds = prefs.getInt("FADE_DURATION", 30)
         val ringingMinutes = prefs.getInt("RINGING_DURATION", 5)
+
+        // 🚨 NEW: Fetch preferred volume and force it in the system
+        val alarmVolumePercentage = prefs.getInt("ALARM_VOLUME", 100)
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+        val targetVol = (maxVol * (alarmVolumePercentage / 100f)).toInt()
+
+        // Force system ALARM volume to chosen level
+        audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetVol, 0)
 
         // 1. Setup Ringtone
         val ringtoneUri = if (!uriString.isNullOrEmpty()) {
